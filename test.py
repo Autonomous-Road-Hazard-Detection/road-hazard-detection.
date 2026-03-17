@@ -8,7 +8,66 @@ from hazard_detector import HazardDetector
 from lane_detector import LaneDetector
 
 
-model = YOLO("yolov8s.pt")
+# -------------------- LOAD MODELS --------------------
+
+normal_model = YOLO("yolov8s.pt")
+night_model = YOLO("yolov8s.pt")
+
+#night_model = YOLO("runs/detect/train/weights/best.pt")
+
+
+# -------------------- MODE DETECTION --------------------
+
+def detect_mode(frame):
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    brightness = np.mean(gray)
+
+    if brightness < 60:
+        return "night"
+
+    return "normal"
+
+
+# -------------------- NIGHT ENHANCEMENT --------------------
+
+def night_mode(frame):
+
+    gamma = 2.0
+    invGamma = 1.0 / gamma
+
+    table = np.array(
+        [(i / 255.0) ** invGamma * 255 for i in np.arange(256)]
+    ).astype("uint8")
+
+    enhanced = cv2.LUT(frame, table)
+
+    return enhanced
+
+
+# -------------------- MODE CONTROLLER --------------------
+
+def apply_mode(frame):
+
+    mode = detect_mode(frame)
+
+    if mode == "night":
+        frame = night_mode(frame)
+
+    return frame, mode
+
+
+# -------------------- MODEL SELECTOR --------------------
+
+def get_model(mode):
+
+    if mode == "night":
+        return night_model
+
+    return normal_model
+
+
+# -------------------- INITIALIZE MODULES --------------------
 
 tracker = Tracker()
 speed_estimator = SpeedEstimator()
@@ -18,9 +77,15 @@ lane_detector = LaneDetector()
 road_classes = {0,1,2,3,5,7,15,16}
 automobile_classes = {1,2,3,5,7}
 
+
+# -------------------- VIDEO INPUT --------------------
+
 cap = cv2.VideoCapture(
-r"C:\Users\chinn\OneDrive\Desktop\traffic videos\object on road.mp4"
+r"C:\Users\chinn\OneDrive\Desktop\traffic videos\nyt_1.mp4"
 )
+
+
+# -------------------- MAIN LOOP --------------------
 
 while True:
 
@@ -30,6 +95,12 @@ while True:
         break
 
     frame = cv2.resize(frame,(1280,720))
+
+    # Detect environment mode
+    frame,mode = apply_mode(frame)
+
+    # Select model based on mode
+    model = get_model(mode)
 
     lane_edges = lane_detector.detect_lane(frame)
 
@@ -48,12 +119,19 @@ while True:
 
         detections.append([x1,y1,x2,y2,conf,cls])
 
+
     tracks = tracker.update(detections)
 
     if len(tracks) > 0:
 
+        track_ids = tracks.tracker_id
+        class_ids = tracks.class_id
+
+        if track_ids is None or class_ids is None:
+            continue
+
         for xyxy,track_id,class_id in zip(
-            tracks.xyxy,tracks.tracker_id,tracks.class_id
+            tracks.xyxy,track_ids,class_ids
         ):
 
             x1,y1,x2,y2 = xyxy
@@ -108,6 +186,8 @@ while True:
             )
 
 
+    # -------------------- ROAD OBSTACLE DETECTION --------------------
+
     gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray,(5,5),0)
 
@@ -140,10 +220,25 @@ while True:
                     2
                 )
 
+
+    # -------------------- DISPLAY MODE --------------------
+
+    cv2.putText(
+        frame,
+        f"MODE: {mode.upper()}",
+        (20,40),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (255,255,255),
+        2
+    )
+
+
     cv2.imshow("Road Hazard Detection System",frame)
 
     if cv2.waitKey(1) == 27:
         break
+
 
 cap.release()
 cv2.destroyAllWindows()

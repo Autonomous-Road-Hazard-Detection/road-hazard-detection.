@@ -9,7 +9,11 @@ class Tracker:
     def update(self, detections):
 
         if len(detections) == 0:
-            return []
+            return sv.Detections(
+                xyxy=np.empty((0, 4), dtype=np.float32),
+                confidence=np.empty((0,), dtype=np.float32),
+                class_id=np.empty((0,), dtype=np.int32),
+            )
 
         detections = np.array(detections)
 
